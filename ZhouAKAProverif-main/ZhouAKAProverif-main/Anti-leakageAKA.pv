@@ -1,0 +1,179 @@
+type element. (*element in finite field or group*) (*定义一个环境*)
+free Sec:channel [private].		(*secure channel*)
+free Pub:channel.			(*public channel*)
+
+
+(*-------Names & Variables-------*)
+(*elements of cyclic group*)
+const g1:element.  (*生成元*)
+const g2:element.  (*生成元*)
+
+(*1. RC public key*)
+free Ppub:element.
+
+(*2. user s' private key*)
+(*Ui*)
+free x1_ui:element [private].
+free x2_ui:element [private].
+free A:element. (* 1*n matrix A*)
+free A1:element [private].
+free A2:element [private].
+free A3:element [private].
+
+free B:element. (* n*2 matrix B*)
+free B11:element [private].
+free B12:element [private].
+free B21:element [private].
+free B22:element [private].
+free B31:element [private].
+free B32:element [private].
+
+(*Sj*)
+free x1_sj:element [private].
+free x2_sj:element [private].
+free A':element. (* 1*n matrix A'*)
+free A1':element [private].
+free A2':element [private].
+free A3':element [private].
+
+free B':element. (* n*2 matrix B'*)
+free B11':element [private].
+free B12':element [private].
+free B21':element [private].
+free B22':element [private].
+free B31':element [private].
+free B32':element [private].
+
+(*3. Users' public parameters*)
+(*Ui*)
+free pk_ui:element.
+free IDi:bitstring.
+
+(*Sj*)
+free pk_sj:element.
+free IDj:bitstring.
+
+
+(*4. User communication message*)
+
+(*5. session key*)
+free SKeyU:element [private].
+free SKeyS:element [private].
+
+(*6. else Parameters*)
+
+
+(*-------Constructors, Destructors & Equations------*)
+fun Xor(element,bitstring):bitstring.
+fun Xor1(element,bitstring):bitstring.
+fun Xor2(element,element):bitstring.
+fun Xor3(element,bitstring):element.
+fun H(bitstring,bitstring,element,element):element.
+
+fun Pairing(element,element):element.  (*Pairing operation:e(g,g)*)
+fun Mult(element,element):element.  (*Multiplication in group: G×G*)
+fun Add(element,element):element.	 (*Addition*)
+fun Powzn(element,element):element. 	(*g^s:Powzn(g,s)*)
+
+
+(*Event*)
+event beginUi(bitstring).
+event endUi(bitstring).
+event beginSj(bitstring).
+event endSj(bitstring).
+
+(*Queries*)
+
+query attacker(SKeyS).(*通过这些询问验证会话密钥的安全性*)
+query attacker(SKeyU).
+query ID:bitstring; inj-event (endUi(IDi)) ==> inj-event(beginUi(IDi)).(*签名的不可伪造性；这两行语句不可以改*)
+query ID:bitstring; inj-event (endSj(IDj)) ==> inj-event(beginSj(IDj)).
+
+
+(*Processes*)
+
+(*system/KGC Processes*)
+let UiReg=
+	in(Sec,(IDi:bitstring)); (*in：输入*)
+	let x1_ui = Add(Add(Mult(A1,B11),Mult(A2,B21)),Mult(A3,B31)) in 
+	let x2_ui = Add(Add(Mult(A2,B12),Mult(A2,B22)),Mult(A3,B32)) in 
+	let pk_ui = Mult(Powzn(g1,x1_ui),Powzn(g2,x2_ui)) in
+	0.
+let SjReg=
+	in(Sec,(IDj:bitstring));
+	let x1_sj = Add(Add(Mult(A1',B11'),Mult(A2',B21')),Mult(A3',B31')) in 
+	let x2_sj = Add(Add(Mult(A2,B12),Mult(A2',B22')),Mult(A3',B32')) in 
+	let pk_sj = Mult(Powzn(g1,x1_sj),Powzn(g2,x2_sj)) in
+	0.
+let KGC=UiReg | SjReg.
+
+(*User Processes*)
+(*Ui Processes*)
+let Ui=
+	(*Registration*)
+	out(Sec,(IDi));
+	
+	(*U&S Authentication*)
+	event beginUi(IDi);  (*事件开始*)
+	(*new r1i,r2i,R1i,R2i,Ti:element;*)
+	new r1i:element;
+	new r2i:element;
+	new R1i:element;
+	new R2i:element;
+	new Ti:element;
+	let R1i = Powzn(g1,r1i) in 
+	let R2i = Powzn(g2,r2i) in 
+	out(Sec,(IDi,R1i,R2i,Ti));
+	
+	in(Sec,(IDj:bitstring,R1j:element,R2j:element,cj:element,Tj:element));
+	new ci:element;
+	new Ti':element;
+	let ABU1sum = Add(Add(Mult(A1,B11),Mult(A2,B21)),Mult(A3,B31)) in
+	let ABU2sum = Add(Add(Mult(A2,B12),Mult(A2,B22)),Mult(A3,B32)) in
+	let v1i=Add(Mult(cj,ABU1sum),r1i) in
+	let v2i=Add(Mult(cj,ABU2sum),r2i) in
+	out(Sec,(IDi,v1i,v2i,Ti'));
+	
+	in(Sec,(IDj:bitstring,v1j:element,v2j:element,Tj':element));
+	if(Mult(Powzn(g1,v1j),Powzn(g2,v2j)) = Mult(Mult(R1j,R2j),Powzn(pk_sj,ci))) then
+	let SKeyU = H(IDi,IDj,Powzn(R1j,r1i),Powzn(R2j,r2i)) in
+	event endUi(IDi)
+	else 0.
+	
+(*Sj Processes*)
+let Sj=
+	(*Registration*)
+	out(Sec,(IDj));
+	
+	(*S&U Authentication*)
+	event beginSj(Sj); (*事件开始*)
+	(*new r1j,r2j,cj,R1j,R2j,Tj:element;*)
+	new r1j:element;
+	new r2j:element;
+	new cj:element;
+	new R1j:element;
+	new R2j:element;
+	new Tj:element;
+	let R1j = Powzn(g1,r1j) in 
+	let R2j = Powzn(g2,r2j) in 
+	out(Sec,(IDj,R1j,R2j,cj,Tj));
+	
+	
+	in(Sec,(IDi:bitstring,v1i:element,v2i:element,ci:element,Ti':element));
+	if(Mult(Powzn(g1,v1i),Powzn(g2,v2i)) = Mult(Mult(R1i,R2i),Powzn(pk_ui,cj))) then
+	new Tj':element;
+	let ABS1sum = Add(Add(Mult(A1',B11'),Mult(A2',B21')),Mult(A3',B31')) in
+	let ABS2sum = Add(Add(Mult(A2',B12'),Mult(A2',B22')),Mult(A3',B32')) in
+	let v1j=Add(Mult(ci,ABS1sum),r1i) in
+	let v2j=Add(Mult(ci,ABS2sum),r2i) in
+	let SKeyS = H(IDi,IDj,Powzn(R1i,r1j),Powzn(R2i,r2j)) in
+	out(Sec,(IDj,v1j,v2j,Tj'));
+	
+	event endSj(IDj)
+	else 0.
+
+
+	
+	(*Processes Replication*)
+	process 
+    (!Ui | !Sj | !KGC)
